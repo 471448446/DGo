@@ -1,0 +1,11 @@
+package main
+import "fmt"
+import (
+	"strconv"
+)
+
+func main(){
+	fmt.Println("Fuck golang");
+	fmt.Println(string(3)+"fuck")
+	fmt.Println(strconv.Itoa(3)+"fuck")
+}
