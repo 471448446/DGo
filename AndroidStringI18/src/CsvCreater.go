@@ -6,10 +6,21 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 	"os"
+	"strings"
 )
 
+const CdataS = "<![CDATA["
+const CdataE = "]]>"
+const StringFileStart = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+const ErrFileOpen = "fail to open file "
+const ErrFileCreate = "fail to create file "
+const ErrFileWrite = "error write file "
+
 func CsvToString(csvFile, stringFile string) {
+	fmt.Println("CsvToString start...")
 	fileCsv, err := os.Open(csvFile)
 	if err != nil {
 		fmt.Println(ErrFileOpen + csvFile)
@@ -22,11 +33,12 @@ func CsvToString(csvFile, stringFile string) {
 	}
 	defer fileCsv.Close()
 	defer fileStr.Close()
-	reader := csv.NewReader(fileCsv)
+	//https://groups.google.com/forum/#!topic/golang-china/HmoS5PPXNzM
+	reader := csv.NewReader(transform.NewReader(fileCsv, simplifiedchinese.GB18030.NewDecoder()))
+	_, _ = fileStr.WriteString(StringFileStart)
 	encoder := xml.NewEncoder(fileStr)
 	encoder.Indent("", "  ")
-
-	elemRes := StartElement("resources", nil)
+	elemRes := CreateStartElement("resources", nil)
 	_ = encoder.EncodeToken(elemRes)
 	var key, value string
 	for {
@@ -34,20 +46,26 @@ func CsvToString(csvFile, stringFile string) {
 		if err != nil {
 			break
 		}
+		// csv标题
 		if s[0] == "key" {
 			continue
 		}
-		fmt.Println(value)
-		elemStr := StartElement("string", [][]string{{"name", key}})
+		key = s[0]
+		value = s[2]
+		elemStr := CreateStartElement("string", [][]string{{"name", key}})
 		_ = encoder.EncodeToken(elemStr)
 		_ = encoder.EncodeToken(xml.CharData(value))
 		_ = encoder.EncodeToken(elemStr.End())
 	}
-	_ = encoder.EncodeToken(elemRes.End())
+	err = encoder.EncodeToken(elemRes.End())
+	PrintErrorIfExist(err)
+	err = encoder.Flush()
+	PrintErrorIfExist(err)
+	fmt.Println("CsvToString end...")
 }
 
 func StringToCsv(stringFile, csvFile string) {
-	fmt.Println("start...")
+	fmt.Println("StringToCsv start...")
 	array, err := parseFromFile(stringFile)
 	if err != nil {
 		fmt.Println(err)
@@ -57,7 +75,7 @@ func StringToCsv(stringFile, csvFile string) {
 	if err != nil {
 		fmt.Println(err)
 	} else {
-		fmt.Println("end...")
+		fmt.Println("StringToCsv end...")
 	}
 }
 
@@ -74,45 +92,67 @@ func parseFromFile(path string) ([][]string, error) {
 	for token, err := p.Token(); err == nil; token, err = p.Token() {
 		switch t := token.(type) {
 		case xml.StartElement:
-			if t.Name.Local == "resources" {
+			switch t.Name.Local {
+			case "resources":
 				continue
-			}
-			for _, e := range t.Attr {
-				if e.Name.Local == "name" {
-					key = e.Value
-				}
+			case "string":
+				key = findKeyNameInString(t)
+				value = ""
+			default:
+				value = value + "<" + t.Name.Local + ">"
 			}
 		case xml.CharData:
-			value = string([]byte(t))
+			c := string([]byte(t))
+			if strings.Contains(c, "<") && !strings.Contains(c, CdataS) {
+				c = CdataS + c + CdataE
+			}
+			value = value + c
 		case xml.EndElement:
 			if t.Name.Local == "resources" {
 				continue
 			}
-			//Go只支持UTF-8编码，而Excel文件是GB2312编码
-			key, _ = UTF82GBK(key)
-			value, _ = UTF82GBK(value)
-			array = append(array, []string{key, value, ""})
+			switch t.Name.Local {
+			case "resources":
+				continue
+			case "string":
+				//Go只支持UTF-8编码，而Excel文件是GB2312编码
+				key, _ = UTF82GBK(key)
+				value, _ = UTF82GBK(value)
+				array = append(array, []string{key, value, ""})
+			default:
+				value = value + "</" + t.Name.Local + ">"
+			}
 		}
 	}
 	return array, nil
 }
 
+func findKeyNameInString(t xml.StartElement) string {
+	var key = ""
+	for _, e := range t.Attr {
+		if e.Name.Local == "name" {
+			key = e.Value
+		}
+	}
+	return key
+}
+
 func saveToFile(path string, infos [][]string) error {
 	file, err := os.Create(path)
 	if err != nil {
-		return errors.New(ErrCsvCreate + path)
+		return errors.New(ErrFileCreate + path)
 	}
 	defer file.Close()
 	csvWriter := csv.NewWriter(file)
 
 	err = csvWriter.Write([]string{"key", "value", "translate"})
 	if err != nil {
-		fmt.Println("warning to create csv Title")
+		fmt.Println("warning fail create csv Title")
 	}
 	err = csvWriter.WriteAll(infos)
 	csvWriter.Flush()
 	if err != nil {
-		return errors.New(ErrCsvWrite)
+		return errors.New(ErrFileWrite)
 	}
 	return nil
 }
