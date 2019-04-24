@@ -1,11 +1,13 @@
 package main
 
 import (
-	"./src"
+	"../core"
 	"fmt"
 	"os"
 	"strings"
 )
+
+var TAG = "I18"
 
 func main() {
 	//  go run D:/WP/gitHub/DGo/AndroidStringI18/main.go D:/strings.xml D:/strings.csv
@@ -21,9 +23,9 @@ func main() {
 
 	suffixCsv, suffixXml := ".csv", ".xml"
 	if strings.Contains(file1, suffixXml) && strings.Contains(file2, suffixCsv) {
-		src.StringToCsv(file1, file2)
+		core.StringToCsv(file1, file2)
 	} else if strings.Contains(file1, suffixCsv) && strings.Contains(file2, suffixXml) {
-		src.CsvToString(file1, file2)
+		core.CsvToString(file1, file2)
 	} else {
 		fmt.Println("error not support parse way")
 	}
